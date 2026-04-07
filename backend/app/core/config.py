@@ -45,16 +45,28 @@ class Settings(BaseSettings):
     # Redis
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
-    REDIS_PASSWORD: str = "nms_redis_password"
+    REDIS_PASSWORD: str = "change-me-redis-password"
 
     @property
     def REDIS_URL(self) -> str:
         return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}"
 
     # Celery
-    CELERY_BROKER_URL: str = "redis://:nms_redis_password@redis:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://:nms_redis_password@redis:6379/1"
+    CELERY_BROKER_URL: Optional[str] = None
+    CELERY_RESULT_BACKEND: Optional[str] = None
     ENABLE_CELERY: bool = not IS_VERCEL_ENV
+
+    @property
+    def resolved_celery_broker_url(self) -> str:
+        if self.CELERY_BROKER_URL:
+            return self.CELERY_BROKER_URL
+        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+
+    @property
+    def resolved_celery_result_backend(self) -> str:
+        if self.CELERY_RESULT_BACKEND:
+            return self.CELERY_RESULT_BACKEND
+        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/1"
 
     # Startup behavior
     AUTO_CREATE_TABLES: bool = not IS_VERCEL_ENV

@@ -44,13 +44,15 @@ services:
   redis:
     image: redis:7-alpine
     container_name: nms-redis
-    command: redis-server --requirepass nms_redis_password
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-redis-password}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-change-me-redis-password}
     volumes:
       - redis_data:/data
     networks:
       - nms-network
     healthcheck:
-      test: ["CMD", "redis-cli", "--pass", "nms_redis_password", "ping"]
+      test: ["CMD-SHELL", "redis-cli --pass \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -9,8 +9,8 @@ def make_celery() -> Celery:
     """Create and configure the Celery application."""
     celery_app = Celery(
         'nms',
-        broker=settings.CELERY_BROKER_URL,
-        backend=settings.CELERY_RESULT_BACKEND,
+        broker=settings.resolved_celery_broker_url,
+        backend=settings.resolved_celery_result_backend,
         include=[
             'app.tasks.polling_tasks',
             'app.tasks.backup_tasks',

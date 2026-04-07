@@ -142,6 +142,8 @@ Important notes:
 - `AUTO_CREATE_TABLES=false` is recommended on Vercel. Run Alembic migrations explicitly.
 - `ENABLE_CELERY=false` avoids Redis dependency on serverless runtime.
 - `INFLUXDB_ENABLED=false` unless you have a managed InfluxDB endpoint.
+- Keep `FRONTEND_URL` and `CORS_ORIGINS` without trailing slash (example: `https://your-frontend-project.vercel.app`).
+- Backend function runtime is pinned to Python 3.11 in `backend/vercel.json` for dependency compatibility.
 
 ### 3. Run migrations against Supabase
 From the backend directory:
@@ -355,6 +357,11 @@ BACKUP_GIT_REPO=/app/git-backups
 2. Ensure `?sslmode=require` is present in the Supabase connection string.
 3. Run `alembic upgrade head` against Supabase.
 4. Confirm `CORS_ORIGINS` includes your frontend Vercel URL.
+
+### Vercel backend returns FUNCTION_INVOCATION_FAILED
+1. Confirm backend Vercel project Root Directory is set to `backend`.
+2. Verify backend environment variables are defined in Vercel (especially `DATABASE_URL` and `SECRET_KEY`).
+3. Redeploy after pulling latest files, including `backend/vercel.json` and `backend/api/requirements.txt`.
 
 ---
 
