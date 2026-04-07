@@ -1,0 +1,59 @@
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# InfluxDB
+influxdb-client==1.40.0
+
+# Redis
+redis==5.0.1
+
+# Celery
+celery==5.3.6
+flower==2.0.1
+
+# SNMP
+pysnmp==4.4.12
+pyasn1==0.5.1
+pysnmp-mibs==0.1.6
+#pysnmp-lextudio==4.4.12.post1
+
+# SSH for backups
+paramiko==3.4.0
+scp==0.15.0
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+pyotp==2.9.0
+
+# Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# HTTP Client
+httpx==0.26.0
+aiohttp==3.9.1
+
+# Utilities
+python-dotenv==1.0.0
+click==8.1.7
+rich==13.7.0
+
+# Reporting
+reportlab==4.0.8
+fpdf2==2.7.9
+
+# Git integration
+gitpython==3.1.41
+
+# Cloud storage
+boto3==1.34.34

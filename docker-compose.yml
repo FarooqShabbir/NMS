@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Configuration and relational data
+  postgres:
+    image: postgres:15-alpine
+    container_name: nms-postgres
+    environment:
+      POSTGRES_USER: nms
+      POSTGRES_PASSWORD: nms_secret_password
+      POSTGRES_DB: nms_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nms-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # InfluxDB - Time-series metrics storage
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: nms-influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: nms
+      DOCKER_INFLUXDB_INIT_PASSWORD: nms_secret_password
+      DOCKER_INFLUXDB_INIT_BUCKET: metrics
+      DOCKER_INFLUXDB_INIT_ORG: nms_org
+      DOCKER_INFLUXDB_INIT_RETENTION: 90d
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - nms-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache and message broker
+  redis:
+    image: redis:7-alpine
+    container_name: nms-redis
+    command: redis-server --requirepass nms_redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - nms-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "nms_redis_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend - FastAPI application
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nms-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - backup_data:/app/backups
+    networks:
+      - nms-network
+    restart: unless-stopped
+
+  # Celery Worker - Background tasks
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nms-celery-worker
+    command: celery -A app.core.celery_config worker --loglevel=info --concurrency=4
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - postgres
+      - influxdb
+      - redis
+    volumes:
+      - ./backend:/app
+      - backup_data:/app/backups
+    networks:
+      - nms-network
+    restart: unless-stopped
+
+  # Celery Beat - Scheduled tasks
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nms-celery-beat
+    command: celery -A app.core.celery_config beat --loglevel=info
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - postgres
+      - influxdb
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - nms-network
+    restart: unless-stopped
+
+  # Frontend - React application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nms-frontend
+    depends_on:
+      - backend
+    networks:
+      - nms-network
+    restart: unless-stopped
+
+  # Nginx - Reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nms-nginx
+    ports:
+      - "8081:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - nms-network
+    restart: unless-stopped
+
+networks:
+  nms-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  influxdb_data:
+  redis_data:
+  backup_data:
