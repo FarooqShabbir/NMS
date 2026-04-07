@@ -2,6 +2,7 @@
 from pydantic_settings import BaseSettings
 from typing import Optional, List
 import os
+from urllib.parse import urlparse
 
 
 IS_VERCEL_ENV = os.getenv("VERCEL", "").lower() in {"1", "true", "yes"}
@@ -123,19 +124,37 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     CORS_ORIGINS: str = ""
 
+    @staticmethod
+    def _normalize_origin(origin: str) -> str:
+        """Normalize origin values from env vars for CORS matching."""
+        clean = origin.strip()
+        if not clean:
+            return ""
+
+        if clean == "*":
+            return clean
+
+        parsed = urlparse(clean)
+        if parsed.scheme and parsed.netloc:
+            # FastAPI CORS expects origin format: scheme://host[:port]
+            return f"{parsed.scheme}://{parsed.netloc}"
+
+        # Fallback for already-normalized values without trailing slash
+        return clean.rstrip("/")
+
     @property
     def parsed_cors_origins(self) -> List[str]:
         origins = {
-            self.FRONTEND_URL,
+            self._normalize_origin(self.FRONTEND_URL),
             "http://localhost:3000",
             "http://localhost:5173",
         }
         if self.CORS_ORIGINS:
             for origin in self.CORS_ORIGINS.split(","):
-                clean_origin = origin.strip()
+                clean_origin = self._normalize_origin(origin)
                 if clean_origin:
                     origins.add(clean_origin)
-        return sorted(origins)
+        return sorted(origin for origin in origins if origin)
 
     class Config:
         env_file = ".env"

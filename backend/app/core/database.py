@@ -28,7 +28,13 @@ else:
         }
     )
 
-engine = create_engine(settings.SQLALCHEMY_DATABASE_URL, **engine_kwargs)
+engine = None
+engine_init_error = None
+try:
+    engine = create_engine(settings.SQLALCHEMY_DATABASE_URL, **engine_kwargs)
+except Exception as exc:
+    engine_init_error = exc
+    logger.error("Database engine initialization failed: %s", exc, exc_info=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -36,6 +42,9 @@ Base = declarative_base()
 
 def get_db():
     """Get database session."""
+    if engine is None:
+        raise RuntimeError(f"Database engine is not initialized: {engine_init_error}")
+
     db = SessionLocal()
     try:
         yield db

@@ -1,4 +1,5 @@
 """FastAPI application main entry point."""
+from importlib import import_module
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,12 +8,6 @@ import logging
 
 from .core.config import settings
 from .core.database import engine, Base
-from .api.router_devices import router as devices_router
-from .api.router_routing import router as routing_router
-from .api.router_vpn import router as vpn_router
-from .api.router_backup import router as backup_router
-from .api.router_alerts import router as alerts_router
-from .api.router_auth import router as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -22,42 +17,69 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _load_router(module_name: str, router_name: str):
+    """Load a router module safely so one import failure does not crash app startup."""
+    try:
+        module = import_module(module_name)
+        return getattr(module, "router")
+    except Exception as exc:
+        logger.error("Skipping router '%s' due import error: %s", router_name, exc, exc_info=True)
+        return None
+
+
+loaded_routers = [
+    _load_router("app.api.router_auth", "auth"),
+    _load_router("app.api.router_devices", "devices"),
+    _load_router("app.api.router_routing", "routing"),
+    _load_router("app.api.router_vpn", "vpn"),
+    _load_router("app.api.router_backup", "backup"),
+    _load_router("app.api.router_alerts", "alerts"),
+]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     logger.info("Starting NMS Application...")
 
-    if settings.AUTO_CREATE_TABLES:
-        logger.info("Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-    else:
-        logger.info("Skipping automatic table creation (AUTO_CREATE_TABLES=false)")
+    try:
+        if settings.AUTO_CREATE_TABLES:
+            logger.info("Creating database tables...")
+            Base.metadata.create_all(bind=engine)
+        else:
+            logger.info("Skipping automatic table creation (AUTO_CREATE_TABLES=false)")
 
-    if settings.SEED_DEFAULT_ADMIN:
-        from sqlalchemy.orm import Session
-        from .models.user import User, UserRole
-        from .core.security import get_password_hash
+        if settings.SEED_DEFAULT_ADMIN:
+            from sqlalchemy.orm import Session
+            from .models.user import User, UserRole
+            from .core.security import get_password_hash
 
-        db = Session(bind=engine)
-        try:
-            admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
-            if not admin:
-                admin = User(
-                    username=settings.ADMIN_USERNAME,
-                    email=settings.ADMIN_EMAIL,
-                    full_name=settings.ADMIN_FULL_NAME,
-                    hashed_password=get_password_hash(settings.ADMIN_PASSWORD),
-                    role=UserRole.ADMIN,
-                    is_superuser=True,
-                )
-                db.add(admin)
-                db.commit()
-                logger.info("Created default admin user (%s)", settings.ADMIN_USERNAME)
-        finally:
-            db.close()
-    else:
-        logger.info("Skipping default admin seeding (SEED_DEFAULT_ADMIN=false)")
+            db = Session(bind=engine)
+            try:
+                admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+                if not admin:
+                    admin = User(
+                        username=settings.ADMIN_USERNAME,
+                        email=settings.ADMIN_EMAIL,
+                        full_name=settings.ADMIN_FULL_NAME,
+                        hashed_password=get_password_hash(settings.ADMIN_PASSWORD),
+                        role=UserRole.ADMIN,
+                        is_superuser=True,
+                    )
+                    db.add(admin)
+                    db.commit()
+                    logger.info("Created default admin user (%s)", settings.ADMIN_USERNAME)
+            finally:
+                db.close()
+        else:
+            logger.info("Skipping default admin seeding (SEED_DEFAULT_ADMIN=false)")
+    except Exception as exc:
+        if settings.IS_VERCEL:
+            logger.error("Startup initialization failed on Vercel: %s", exc, exc_info=True)
+            logger.info("Continuing without startup initialization.")
+        else:
+            raise
 
     logger.info("NMS Application started successfully!")
 
@@ -108,12 +130,9 @@ async def health_check():
 
 
 # Include routers
-app.include_router(auth_router)
-app.include_router(devices_router)
-app.include_router(routing_router)
-app.include_router(vpn_router)
-app.include_router(backup_router)
-app.include_router(alerts_router)
+for router in loaded_routers:
+    if router is not None:
+        app.include_router(router)
 
 
 # Root endpoint
