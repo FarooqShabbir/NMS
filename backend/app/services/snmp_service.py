@@ -1,12 +1,8 @@
 """Core SNMP service for device polling."""
-import asyncio
-from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime
-from contextlib import contextmanager
+from __future__ import annotations
 
-from pysnmp.hlapi import *
-from pysnmp.hlapi import SnmpEngine, CommunityData, UdpTransportTarget, ContextData
-from pysnmp.proto.rfc1902 import Integer, OctetString, Counter32, Counter64, Gauge32, TimeTicks
+from typing import Any, Dict, List, Optional, Tuple
+from contextlib import contextmanager
 
 from ..core.config import settings
 from ..utils.oid_mappings import (
@@ -32,6 +28,35 @@ from ..utils.oid_mappings import (
 )
 from ..models.device import SNMPVersion
 
+SNMP_AVAILABLE = True
+SNMP_IMPORT_ERROR: Optional[Exception] = None
+
+try:
+    from pysnmp.hlapi import (
+        SnmpEngine,
+        CommunityData,
+        UdpTransportTarget,
+        ContextData,
+        UsmUserData,
+        usmHMACMD5AuthProtocol,
+        usmHMACSHAAuthProtocol,
+        usmHMAC128SHA224AuthProtocol,
+        usmNoAuthProtocol,
+        usmDESPrivProtocol,
+        usmAesCfb128Protocol,
+        usmAesCfb192Protocol,
+        usmAesCfb256Protocol,
+        usmNoPrivProtocol,
+        getCmd,
+        bulkCmd,
+        ObjectType,
+        ObjectIdentity,
+    )
+    from pysnmp.proto.rfc1902 import Integer, OctetString, Counter32, Counter64, Gauge32, TimeTicks
+except Exception as exc:  # pragma: no cover - runtime-dependent import behavior
+    SNMP_AVAILABLE = False
+    SNMP_IMPORT_ERROR = exc
+
 
 class SNMPError(Exception):
     """SNMP operation error."""
@@ -42,9 +67,16 @@ class SNMPService:
     """SNMP service for polling network devices."""
 
     def __init__(self):
-        self.snmp_engine = SnmpEngine()
+        self.snmp_engine = SnmpEngine() if SNMP_AVAILABLE else None
         self.timeout = settings.SNMP_TIMEOUT
         self.retries = settings.SNMP_RETRIES
+
+    def _require_snmp(self):
+        """Ensure SNMP runtime dependencies are available before use."""
+        if not SNMP_AVAILABLE or self.snmp_engine is None:
+            raise SNMPError(
+                f"SNMP dependencies are unavailable in this runtime: {SNMP_IMPORT_ERROR}"
+            )
 
     def _get_auth_data(
         self,
@@ -72,8 +104,8 @@ class SNMPService:
                 "AES256": usmAesCfb256Protocol,
             }
 
-            auth_proto = auth_protocol_map.get(v3_auth_protocol.upper(), usmNoAuthProtocol)
-            priv_proto = priv_protocol_map.get(v3_priv_protocol.upper(), usmNoPrivProtocol)
+            auth_proto = auth_protocol_map.get((v3_auth_protocol or "").upper(), usmNoAuthProtocol)
+            priv_proto = priv_protocol_map.get((v3_priv_protocol or "").upper(), usmNoPrivProtocol)
 
             return UsmUserData(
                 v3_username,
@@ -117,6 +149,8 @@ class SNMPService:
         Returns:
             The value or None if error
         """
+        self._require_snmp()
+
         with self._handle_snmp_errors(device.ip_address):
             auth_data = self._get_auth_data(
                 device.ip_address,
@@ -168,6 +202,8 @@ class SNMPService:
         Returns:
             Dict mapping OID to value
         """
+        self._require_snmp()
+
         results = {}
 
         with self._handle_snmp_errors(device.ip_address):
@@ -220,6 +256,8 @@ class SNMPService:
         Returns:
             Dict mapping OID suffix to value
         """
+        self._require_snmp()
+
         results = {}
         base_oid = base_oid.rstrip(".")
 
@@ -270,6 +308,9 @@ class SNMPService:
         if value is None:
             return None
 
+        if not SNMP_AVAILABLE:
+            return str(value)
+
         if isinstance(value, Integer):
             return int(value)
         elif isinstance(value, Gauge32):
@@ -297,6 +338,7 @@ class SNMPService:
             Tuple of (success, message)
         """
         try:
+            self._require_snmp()
             # Try to get system description
             result = self.get_value(SYS_DESCR, device)
             if result:
