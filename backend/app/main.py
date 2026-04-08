@@ -146,12 +146,37 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def debug_db():
     """Temporary debug endpoint to check database connectivity."""
     import traceback
-    result = {"engine_status": "unknown", "config": {}}
+    from urllib.parse import urlparse, unquote
+    result = {"engine_status": "unknown", "config": {}, "password_debug": {}}
 
     try:
-        result["config"]["database_url_prefix"] = settings.SQLALCHEMY_DATABASE_URL[:40] + "..."
+        raw_url = settings.DATABASE_URL or ""
+        result["config"]["has_database_url"] = bool(raw_url)
+        result["config"]["database_url_prefix"] = settings.SQLALCHEMY_DATABASE_URL[:50] + "..."
         result["config"]["db_use_null_pool"] = settings.DB_USE_NULL_POOL
         result["config"]["is_vercel"] = settings.IS_VERCEL
+
+        # Parse the URL to inspect password
+        if raw_url:
+            parsed = urlparse(raw_url)
+            raw_password = parsed.password or ""
+            decoded_password = unquote(raw_password)
+
+            def mask(p):
+                if len(p) <= 4:
+                    return "***"
+                return p[:3] + "*" * (len(p) - 6) + p[-3:]
+
+            result["password_debug"] = {
+                "raw_password_from_url": mask(raw_password),
+                "decoded_password": mask(decoded_password),
+                "raw_length": len(raw_password),
+                "decoded_length": len(decoded_password),
+                "has_percent_encoding": "%" in raw_password,
+                "username": parsed.username,
+                "host": parsed.hostname,
+                "port": parsed.port,
+            }
     except Exception as e:
         result["config_error"] = str(e)
 
@@ -167,7 +192,6 @@ async def debug_db():
     except Exception as e:
         result["engine_status"] = "error"
         result["connection_error"] = str(e)
-        result["traceback"] = traceback.format_exc()
 
     return result
 
