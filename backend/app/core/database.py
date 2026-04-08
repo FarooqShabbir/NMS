@@ -1,9 +1,10 @@
 """Database connections - PostgreSQL and InfluxDB."""
 import logging
+import re
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -14,19 +15,22 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
-# ── lazy singletons ──────────────────────────────────────
-_engine = None
-_SessionLocal = None
+# Public names that main.py imports directly
+engine = None
+engine_init_error = None
 
 
-def _get_engine():
-    """Create engine on first use, not at import time."""
-    global _engine
-    if _engine is None:
+def _init_engine():
+    """Initialize engine lazily on first use."""
+    global engine, engine_init_error
+
+    if engine is not None:
+        return engine
+
+    try:
         url = settings.SQLALCHEMY_DATABASE_URL
 
-        # Log masked URL so you can verify in Vercel logs
-        import re
+        # Log masked URL to verify correct password is used
         masked = re.sub(r':([^@]+)@', ':***@', url)
         logger.info("Initializing DB engine with URL: %s", masked)
 
@@ -41,25 +45,37 @@ def _get_engine():
                 "pool_recycle": settings.DB_POOL_RECYCLE,
             })
 
-        _engine = create_engine(url, **engine_kwargs)
+        engine = create_engine(url, **engine_kwargs)
+        engine_init_error = None
+        logger.info("DB engine initialized successfully.")
 
-    return _engine
+    except Exception as exc:
+        engine_init_error = exc
+        engine = None
+        logger.error("Database engine initialization failed: %s", exc, exc_info=True)
+
+    return engine
 
 
-def _get_session_local():
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=_get_engine()
-        )
-    return _SessionLocal
+# Initialize on module load — but failures won't crash the app
+_init_engine()
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db():
-    """Get database session."""
-    SessionLocal = _get_session_local()
+    """Get database session, retrying engine init if it previously failed."""
+    global SessionLocal
+
+    current_engine = _init_engine()  # retry if engine was None
+
+    if current_engine is None:
+        raise RuntimeError(f"Database engine is not initialized: {engine_init_error}")
+
+    # Rebind session if engine was just initialized
+    if SessionLocal.kw.get("bind") is None:
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=current_engine)
+
     db = SessionLocal()
     try:
         yield db
@@ -67,7 +83,7 @@ def get_db():
         db.close()
 
 
-# ── InfluxDB (keep as-is, it's fine) ─────────────────────
+# ── InfluxDB ─────────────────────────────────────────────
 influxdb_client = None
 influxdb_write_api = None
 influxdb_query_api = None
