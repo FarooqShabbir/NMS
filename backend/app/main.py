@@ -133,8 +133,43 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"},
+        content={
+            "detail": "Internal server error",
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+        },
     )
+
+
+# Database connectivity diagnostic
+@app.get("/api/debug/db")
+async def debug_db():
+    """Temporary debug endpoint to check database connectivity."""
+    import traceback
+    result = {"engine_status": "unknown", "config": {}}
+
+    try:
+        result["config"]["database_url_prefix"] = settings.SQLALCHEMY_DATABASE_URL[:40] + "..."
+        result["config"]["db_use_null_pool"] = settings.DB_USE_NULL_POOL
+        result["config"]["is_vercel"] = settings.IS_VERCEL
+    except Exception as e:
+        result["config_error"] = str(e)
+
+    try:
+        if engine is None:
+            result["engine_status"] = f"None (init error: {engine_init_error})"
+        else:
+            result["engine_status"] = "initialized"
+            # Test actual connection
+            with engine.connect() as conn:
+                conn.execute(__import__('sqlalchemy').text("SELECT 1"))
+                result["connection_test"] = "OK"
+    except Exception as e:
+        result["engine_status"] = "error"
+        result["connection_error"] = str(e)
+        result["traceback"] = traceback.format_exc()
+
+    return result
 
 
 # Health check endpoint
