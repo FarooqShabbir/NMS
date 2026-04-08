@@ -98,13 +98,32 @@ app = FastAPI(
 )
 
 # CORS middleware
+# On Vercel, vercel.json headers handle origin restriction at the edge,
+# so we use ["*"] to avoid double-filtering. Locally, use parsed origins.
+cors_origins = ["*"] if settings.IS_VERCEL else settings.parsed_cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.parsed_cors_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Explicit OPTIONS handler for preflight requests (safety net for Vercel)
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(rest_of_path: str):
+    """Handle CORS preflight requests explicitly."""
+    return JSONResponse(
+        content=None,
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "https://netmonitoring.vercel.app",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Requested-With",
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
 
 
 # Global exception handler
