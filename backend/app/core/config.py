@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # Database - PostgreSQL / Supabase
     DATABASE_URL: Optional[str] = None
+    DB_PASSWORD: Optional[str] = None  # Override password in DATABASE_URL (avoids URL-encoding issues)
     POSTGRES_USER: str = "nms"
     POSTGRES_PASSWORD: str = "nms_secret_password"
     POSTGRES_HOST: str = "postgres"
@@ -33,6 +34,16 @@ class Settings(BaseSettings):
     @property
     def SQLALCHEMY_DATABASE_URL(self) -> str:
         if self.DATABASE_URL:
+            # If DB_PASSWORD is set separately, replace the password in DATABASE_URL
+            if self.DB_PASSWORD:
+                from urllib.parse import urlparse, quote_plus, urlunparse
+                parsed = urlparse(self.DATABASE_URL)
+                encoded_pw = quote_plus(self.DB_PASSWORD)
+                netloc = f"{parsed.username}:{encoded_pw}@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                return urlunparse((parsed.scheme, netloc, parsed.path,
+                                   parsed.params, parsed.query, parsed.fragment))
             return self.DATABASE_URL
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
